@@ -1,0 +1,182 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard - Unified Asset Transfer System{% endblock %}
+
+{% block content %}
+<!-- Dashboard Welcome Section -->
+<div class="dashboard-card">
+    <div class="card-header-custom">
+        <h2 class="card-title">
+            <i class="fas fa-tachometer-alt"></i> 
+            Welcome to Unified Asset Transfer System
+        </h2>
+        <span class="badge bg-success">System Online</span>
+    </div>
+    
+    <div class="row">
+        <div class="col-md-8">
+            <p class="lead">
+                The Unified Asset Transfer System is your centralized platform for managing digital asset transfers 
+                and validations across multiple environments.
+            </p>
+            
+            <div class="row mt-4">
+                <div class="col-md-6 mb-3">
+                    <div class="card h-100">
+                        <div class="card-body text-center">
+                            <i class="fas fa-shield-alt fa-2x text-primary mb-3"></i>
+                            <h5 class="card-title">Validate YubiKey</h5>
+                            <p class="card-text">Secure authentication and validation for YubiKey devices.</p>
+                            {% comment %} <a href="{% url 'dashboard' %}" class="btn btn-primary-custom">Access</a> {% endcomment %}
+                            <button class="btn btn-primary-custom" disabled>Coming Soon</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-6 mb-3">
+                    <div class="card h-100">
+                        <div class="card-body text-center">
+                            <i class="fas fa-exchange-alt fa-2x text-success mb-3"></i>
+                            <h5 class="card-title">Transfer Management</h5>
+                            <p class="card-text">Manage asset transfers between different environments.</p>
+                            {% comment %} <a href="{% url 'transfers' %}" class="btn btn-primary-custom">Access</a> {% endcomment %}
+                            <button class="btn btn-primary-custom" disabled>Coming Soon</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h6 class="mb-0">System Status</h6>
+                </div>
+                <div class="card-body">
+                    <div class="balance-item">
+                        <span class="asset-name">API Status</span>
+                        <span class="badge bg-success">Online</span>
+                    </div>
+                    <div class="balance-item">
+                        <span class="asset-name">Database</span>
+                        <span class="badge bg-success">Connected</span>
+                    </div>
+                    <div class="balance-item">
+                        <span class="asset-name">Services</span>
+                        <span class="badge bg-warning">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Actions Section -->
+<div class="dashboard-card">
+    <div class="card-header-custom">
+        <h3 class="card-title">
+            <i class="fas fa-bolt"></i> 
+            Quick Actions
+        </h3>
+    </div>
+    
+    <div class="row">
+        <div class="col-md-3 mb-3">
+            <button class="btn btn-outline-primary w-100" onclick="showAlert('Feature coming soon!', 'info')">
+                <i class="fas fa-plus-circle"></i><br>
+                <small>New Transfer</small>
+            </button>
+        </div>
+        
+        <div class="col-md-3 mb-3">
+            <button class="btn btn-outline-success w-100" onclick="showAlert('Feature coming soon!', 'info')">
+                <i class="fas fa-history"></i><br>
+                <small>View History</small>
+            </button>
+        </div>
+        
+        <div class="col-md-3 mb-3">
+            <button class="btn btn-outline-warning w-100" onclick="showAlert('Feature coming soon!', 'info')">
+                <i class="fas fa-chart-line"></i><br>
+                <small>Analytics</small>
+            </button>
+        </div>
+        
+        <div class="col-md-3 mb-3">
+            <button class="btn btn-outline-info w-100" onclick="showAlert('Feature coming soon!', 'info')">
+                <i class="fas fa-cog"></i><br>
+                <small>Settings</small>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Activity Section -->
+<div class="dashboard-card">
+    <div class="card-header-custom">
+        <h3 class="card-title">
+            <i class="fas fa-clock"></i> 
+            Recent Activity
+        </h3>
+        <button class="btn btn-sm btn-outline-primary" onclick="loadRecentActivity()">
+            <i class="fas fa-sync-alt"></i> Refresh
+        </button>
+    </div>
+    
+    <div class="table-responsive">
+        <table class="table table-custom">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Action</th>
+                    <th>User</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="recentActivityTable">
+                <tr>
+                    <td colspan="4" class="text-center text-muted py-4">
+                        <i class="fas fa-inbox"></i><br>
+                        No recent activity found
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Page-specific JavaScript
+    $(document).ready(function() {
+        // Initialize dashboard
+        initializeDashboard();
+        
+        // Load initial data
+        loadSystemStatus();
+    });
+    
+    function initializeDashboard() {
+        showAlert('Welcome to Unified Asset Transfer System!', 'success');
+    }
+    
+    function loadSystemStatus() {
+        // Simulate loading system status
+        setTimeout(() => {
+            $('.badge:contains("Loading...")').removeClass('bg-warning').addClass('bg-success').text('Ready');
+        }, 2000);
+    }
+    
+    function loadRecentActivity() {
+        const button = $('.btn:contains("Refresh")');
+        showLoading(button);
+        
+        // Simulate API call
+        setTimeout(() => {
+            hideLoading(button);
+            showAlert('Activity data refreshed', 'info');
+        }, 1500);
+    }
+</script>
+{% endblock %}
