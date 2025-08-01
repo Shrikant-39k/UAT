@@ -1,0 +1,230 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block title %}Verify Your Identity{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+    .webauthn-container {
+        max-width: 400px;
+        margin: 50px auto;
+        padding: 30px;
+        background: #fff;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    .webauthn-icon {
+        text-align: center;
+        margin-bottom: 20px;
+    }
+    .webauthn-icon svg {
+        width: 64px;
+        height: 64px;
+        fill: #0066cc;
+    }
+    .webauthn-title {
+        text-align: center;
+        margin-bottom: 10px;
+        font-size: 24px;
+        font-weight: 500;
+    }
+    .webauthn-description {
+        text-align: center;
+        color: #666;
+        margin-bottom: 30px;
+    }
+    .webauthn-button {
+        width: 100%;
+        padding: 12px;
+        background: #0066cc;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        font-size: 16px;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    .webauthn-button:hover {
+        background: #0052a3;
+    }
+    .webauthn-button:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+    }
+    .webauthn-error {
+        background: #fee;
+        color: #c00;
+        padding: 10px;
+        border-radius: 4px;
+        margin-bottom: 20px;
+        display: none;
+    }
+    .webauthn-cancel {
+        text-align: center;
+        margin-top: 20px;
+    }
+    .webauthn-cancel a {
+        color: #666;
+        text-decoration: none;
+    }
+    .webauthn-cancel a:hover {
+        text-decoration: underline;
+    }
+    .spinner {
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        border: 2px solid #fff;
+        border-radius: 50%;
+        border-top-color: transparent;
+        animation: spin 0.8s linear infinite;
+        margin-right: 8px;
+        vertical-align: middle;
+    }
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="webauthn-container">
+    <div class="webauthn-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5z"/>
+        </svg>
+    </div>
+    
+    <h1 class="webauthn-title">Admin Access Verification</h1>
+    <p class="webauthn-description">
+        Please verify your identity with your security key to access the admin panel.
+    </p>
+    
+    <div class="webauthn-error" id="error-message"></div>
+    
+    <button class="webauthn-button" id="verify-button" onclick="startVerification()">
+        <span id="button-text">Verify with Security Key</span>
+    </button>
+    
+    <div class="webauthn-cancel">
+        <a href="/">Cancel and return to main app</a>
+    </div>
+</div>
+
+<script src="https://unpkg.com/@clerk/clerk-js@4/dist/clerk.browser.js"></script>
+<script src="https://unpkg.com/@simplewebauthn/browser@8.3.4/dist/bundle/index.umd.min.js"></script>
+<script>
+    const { startAuthentication } = SimpleWebAuthnBrowser;
+    
+    // Initialize Clerk
+    let clerk;
+    async function initializeClerk() {
+        try {
+            const clerkPublishableKey = '{{ clerk_publishable_key|default:"" }}';
+            if (clerkPublishableKey) {
+                clerk = new window.Clerk(clerkPublishableKey);
+                await clerk.load();
+            }
+        } catch (e) {
+            console.warn('Could not initialize Clerk:', e);
+        }
+    }
+    
+    // Initialize Clerk when page loads
+    document.addEventListener('DOMContentLoaded', initializeClerk);
+    
+    async function startVerification() {
+        const button = document.getElementById('verify-button');
+        const buttonText = document.getElementById('button-text');
+        const errorDiv = document.getElementById('error-message');
+        
+        // Reset error
+        errorDiv.style.display = 'none';
+        errorDiv.textContent = '';
+        
+        // Show loading state
+        button.disabled = true;
+        buttonText.innerHTML = '<span class="spinner"></span>Waiting for security key...';
+        
+        try {
+            // Get CSRF token
+            const csrfToken = '{{ csrf_token }}';
+            
+            // For admin access, we need to get the token from Clerk
+            let authToken = '';
+            
+            // Try to get Clerk session token
+            if (window.Clerk && window.Clerk.session) {
+                try {
+                    authToken = await window.Clerk.session.getToken();
+                } catch (e) {
+                    console.warn('Could not get Clerk token:', e);
+                }
+            }
+            
+            // Get authentication options from server
+            const optionsResponse = await fetch('/api/v1/webauthn/authenticate/begin/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken,
+                    'Authorization': 'Bearer ' + authToken,
+                },
+                body: JSON.stringify({
+                    userId: '{{ user.clerk_id|default:user.id }}',
+                }),
+            });
+            
+            if (!optionsResponse.ok) {
+                const errorData = await optionsResponse.json();
+                throw new Error(errorData.error || 'Failed to get authentication options');
+            }
+            
+            const options = await optionsResponse.json();
+            
+            // Start WebAuthn authentication
+            const assertion = await startAuthentication(options);
+            
+            // Verify with server
+            const verifyResponse = await fetch('/api/v1/webauthn/authenticate/complete/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken,
+                    'Authorization': 'Bearer ' + authToken,
+                },
+                body: JSON.stringify({
+                    assertion: assertion,
+                }),
+            });
+            
+            if (!verifyResponse.ok) {
+                throw new Error('Verification failed');
+            }
+            
+            const result = await verifyResponse.json();
+            
+            if (result.verified) {
+                // Check if there's a redirect URL for admin
+                if (result.redirect_url) {
+                    window.location.href = result.redirect_url;
+                } else {
+                    // Default redirect to admin index
+                    window.location.href = '{% url "admin:index" %}';
+                }
+            } else {
+                throw new Error('Verification failed');
+            }
+        } catch (error) {
+            console.error('Verification error:', error);
+            errorDiv.textContent = error.message || 'Verification failed. Please try again.';
+            errorDiv.style.display = 'block';
+            
+            // Reset button
+            button.disabled = false;
+            buttonText.textContent = 'Verify with Security Key';
+        }
+    }
+</script>
+{% endblock %}

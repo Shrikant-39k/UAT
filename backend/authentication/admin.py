@@ -1,99 +1,130 @@
-from datetime import timezone
+from django.http import JsonResponse
+from django.utils import timezone
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth import get_user_model
-from django.http import JsonResponse
 from django.urls import path, reverse
-from django.shortcuts import redirect
-from django.contrib.auth.views import LogoutView
+from django.shortcuts import redirect, render
 from django.contrib import messages
+from django.views.decorators.csrf import csrf_exempt
+from django.conf import settings
 from django.utils.decorators import method_decorator
-from django.views.decorators.cache import never_cache
-from django.contrib.admin.views.decorators import staff_member_required
-from functools import wraps
+from clerk_backend_api import Clerk
+
+clerk = Clerk(
+    bearer_auth=settings.CLERK_SECRET_KEY,
+)
 
 User = get_user_model()
 
-def webauthn_required(view_func):
-    """Decorator to require WebAuthn verification for admin views"""
-    @wraps(view_func)
-    def wrapped_view(request, *args, **kwargs):
-        # Check if user has verified with WebAuthn in this session
-        if not request.session.get('webauthn_verified'):
-            # Store the intended URL
-            request.session['admin_redirect_url'] = request.get_full_path()
-            return redirect('admin:webauthn_verify')
-        return view_func(request, *args, **kwargs)
-    return wrapped_view
-
 class WebAuthnAdminSite(admin.AdminSite):
-    """Custom admin site that requires WebAuthn verification"""
-    
-    def has_permission(self, request):
-        """Check if user has permission to view admin"""
-        # First check basic permission
-        has_perm = super().has_permission(request)
-        if not has_perm:
-            return False
-        
-        # For login page, don't require WebAuthn
-        if request.path == reverse('admin:login'):
-            return True
-        
-        # Check WebAuthn verification
-        return request.session.get('webauthn_verified', False)
+    """Simplified admin site - authentication handled by middleware"""
+    site_header = 'UAT Administration'
+    site_title = 'UAT Admin'
+    index_title = 'Welcome to UAT Administration'
     
     def login(self, request, extra_context=None):
-        """Override login to use Clerk authentication"""
-        # If user is already authenticated via Clerk
-        if request.user.is_authenticated and request.user.is_staff:
-            # Redirect to WebAuthn verification
-            return redirect('admin:webauthn_verify')
+        """Show Clerk login page"""
+        context = {
+            'site_header': self.site_header,
+            'has_permission': True,
+            'CLERK_FRONTEND_API_KEY': getattr(settings, 'CLERK_FRONTEND_API_KEY', ''),
+            'CLERK_FRONTEND_API_URL': getattr(settings, 'CLERK_FRONTEND_API_URL', ''),
+        }
         
-        # Otherwise, redirect to main app login
-        return redirect('/sign-in')
+        # Check if Clerk settings are configured
+        if not context['CLERK_FRONTEND_API_KEY'] or not context['CLERK_FRONTEND_API_URL']:
+            messages.error(request, "Clerk authentication is not properly configured. Please contact your administrator.")
+        
+        return render(request, 'admin/clerk_login.html', context)
+    
+    def logout(self, request, extra_context=None):
+        """Custom logout that cleans up WebAuthn session"""
+        # Clean up WebAuthn verification session
+        session_keys = ['webauthn_verified', 'webauthn_verified_at', 'admin_redirect_url']
+        for key in session_keys:
+            if key in request.session:
+                del request.session[key]
+        
+        # Logout from clerk
+        clerk.sessions.revoke(request.user)
+        
+        
+        # Call parent logout
+        return super().logout(request, extra_context)
     
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
-            path('webauthn-verify/', self.admin_view(self.webauthn_verify_view), name='webauthn_verify'),
-            path('webauthn-verify-complete/', self.admin_view(self.webauthn_verify_complete), name='webauthn_verify_complete'),
+            path('logout/', self.logout, name='logout'),
+            path('webauthn-verify/', self.webauthn_verify_view, name='webauthn_verify'),
+            path('clerk-auth-complete/', csrf_exempt(self.clerk_auth_complete), name='clerk_auth_complete'),
         ]
         return custom_urls + urls
     
+    def clerk_auth_complete(self, request):
+        """Handle completion of Clerk authentication"""
+        if request.method == 'POST':
+            if not request.user.is_authenticated:
+                return JsonResponse({
+                    'success': False, 
+                    'error': 'not_authenticated',
+                    'message': 'User authentication failed. Please try logging in again.'
+                })
+            
+            if not request.user.is_staff:
+                return JsonResponse({
+                    'success': False, 
+                    'error': 'not_staff',
+                    'message': 'You do not have permission to access the admin panel.'
+                })
+            
+            # Check if user has WebAuthn credentials
+            from webauthn_mfa.models import WebAuthnCredential
+            has_credentials = WebAuthnCredential.objects.filter(user=request.user.id).exists()
+            
+            if not has_credentials:
+                return JsonResponse({
+                    'success': False, 
+                    'error': 'no_webauthn',
+                    'message': 'You need to set up a security key before accessing the admin panel. Please contact your administrator.'
+                })
+            
+            # User has credentials, redirect to WebAuthn verification
+            return JsonResponse({
+                'success': True, 
+                'redirect_url': reverse('admin:webauthn_verify')
+            })
+        
+        return JsonResponse({'success': False, 'error': 'Invalid request method'})
+    
     def webauthn_verify_view(self, request):
         """WebAuthn verification page for admin access"""
-        from django.shortcuts import render
         from webauthn_mfa.models import WebAuthnCredential
         
-        # Check if user has any WebAuthn credentials
-        has_credentials = WebAuthnCredential.objects.filter(user=request.user).exists()
+        # Check if user has WebAuthn credentials
+        has_credentials = WebAuthnCredential.objects.filter(user=request.user.id).exists()
         
         if not has_credentials:
-            messages.error(request, "You need to set up a security key before accessing the admin panel.")
-            return redirect('/security')
+            messages.error(request, "You need to set up a security key before accessing the admin panel. Please contact your administrator.")
+            context = {
+                'title': 'Admin Access Denied',
+                'site_header': self.site_header,
+                'has_permission': True,
+                'user': request.user,
+                'show_contact_admin': True,
+            }
+            return render(request, 'admin/clerk_webauthn_setup.html', context)
         
+        # User has credentials, show verification page
         context = {
             'title': 'Verify Your Identity',
             'site_header': self.site_header,
             'has_permission': True,
+            'user': request.user,
         }
         
         return render(request, 'admin/webauthn_verify.html', context)
-    
-    def webauthn_verify_complete(self, request):
-        """Handle WebAuthn verification completion"""
-        if request.method == 'POST':
-            # This will be called via AJAX after successful WebAuthn verification
-            request.session['webauthn_verified'] = True
-            request.session['webauthn_verified_at'] = timezone.now().isoformat()
-            
-            # Get redirect URL or default to admin index
-            redirect_url = request.session.pop('admin_redirect_url', reverse('admin:index'))
-            
-            return JsonResponse({'success': True, 'redirect_url': redirect_url})
-        
-        return JsonResponse({'success': False, 'error': 'Invalid request'})
 
 # Create custom admin site instance
 admin_site = WebAuthnAdminSite(name='webauthn_admin')

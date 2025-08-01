@@ -8,12 +8,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost').split(',')
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
+
+# Disable automatic slash appending for API endpoints
+APPEND_SLASH = False
 
 # Clerk Configuration
 CLERK_SECRET_KEY = os.getenv('CLERK_SECRET_KEY')
-CLERK_PUBLISHABLE_KEY = os.getenv('CLERK_PUBLISHABLE_KEY')
 CLERK_WEBHOOK_SECRET = os.getenv('CLERK_WEBHOOK_SECRET')
+CLERK_FRONTEND_API_URL = os.getenv('CLERK_FRONTEND_API_URL', 'clerk.dev')
+CLERK_FRONTEND_API_KEY = os.getenv('CLERK_FRONTEND_API_KEY')
+
 
 # WebAuthn Configuration
 WEBAUTHN_RP_ID = os.getenv('WEBAUTHN_RP_ID', 'localhost')
@@ -43,12 +48,23 @@ MIDDLEWARE = [
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'authentication.middleware.ClerkAuthenticationMiddleware',
+    'authentication.middleware.AdminWebAuthnMiddleware',  # Add our new middleware
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
 # Custom User Model
 AUTH_USER_MODEL = 'authentication.User'
+
+# Authentication backends
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',  # Default Django auth for admin
+    'authentication.backends.ClerkAuthentication',  # Clerk auth for API
+]
+
+ROOT_URLCONF = 'backend.urls'
+
+WSGI_APPLICATION = 'backend.wsgi.application'
 
 # Database
 # DATABASES = {
@@ -74,7 +90,7 @@ DATABASES = {
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [os.path.join(BASE_DIR, 'templates')],  # Add this
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -86,6 +102,10 @@ TEMPLATES = [
         },
     },
 ]
+
+STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
 
 # REST Framework
 REST_FRAMEWORK = {
@@ -107,3 +127,13 @@ CORS_ALLOW_CREDENTIALS = True
 # Celery Configuration
 CELERY_BROKER_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+
+
+# Internationalization
+LANGUAGE_CODE = 'en-us'
+TIME_ZONE = 'UTC'
+USE_I18N = True
+USE_TZ = True
+
+# Default primary key field type
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
